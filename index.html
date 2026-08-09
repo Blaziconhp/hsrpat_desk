@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise Helpdesk | Escalations & NDR</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- SheetJS for Excel Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Supabase CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#2563eb',
+                        secondary: '#475569',
+                        dark: '#0f172a'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .module { display: none; }
+        .module.active { display: block; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans h-screen flex overflow-hidden">
+
+    <!-- Sidebar Navigation -->
+    <aside class="w-64 bg-dark text-white flex flex-col h-full shadow-xl z-20">
+        <div class="p-6 text-2xl font-bold border-b border-gray-700 tracking-wide">
+            <i class="fa-solid fa-layer-group text-primary mr-2"></i>OpsDesk
+        </div>
+        
+        <div class="p-4 bg-gray-800 text-sm mb-4">
+            <p class="text-gray-400">Current Role:</p>
+            <select id="roleSimulator" class="w-full mt-1 bg-gray-700 text-white border-none rounded p-2 focus:ring-2 focus:ring-primary" onchange="applyRBAC()">
+                <option value="admin">Admin (All Access)</option>
+                <option value="crm">CRM Team</option>
+                <option value="logistics">Logistics Team</option>
+            </select>
+        </div>
+
+        <nav class="flex-1 px-4 space-y-2">
+            <button onclick="switchModule('dashboard')" class="nav-btn w-full flex items-center p-3 rounded-lg hover:bg-gray-800 transition-colors" data-module="dashboard">
+                <i class="fa-solid fa-chart-pie w-6"></i> Dashboard
+            </button>
+            <button onclick="switchModule('escalations')" class="nav-btn w-full flex items-center p-3 rounded-lg hover:bg-gray-800 transition-colors" data-module="escalations">
+                <i class="fa-solid fa-headset w-6"></i> Escalations
+            </button>
+            <button onclick="switchModule('ndr')" class="nav-btn w-full flex items-center p-3 rounded-lg hover:bg-gray-800 transition-colors" data-module="ndr">
+                <i class="fa-solid fa-truck-fast w-6"></i> NDR Cases
+            </button>
+            <button onclick="switchModule('admin-settings')" class="nav-btn w-full flex items-center p-3 rounded-lg hover:bg-gray-800 transition-colors" id="nav-admin" data-module="admin-settings">
+                <i class="fa-solid fa-user-shield w-6"></i> Admin Settings
+            </button>
+        </nav>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex flex-col h-full overflow-hidden relative">
+        <!-- Top Header -->
+        <header class="bg-white shadow-sm h-16 flex items-center justify-between px-8 z-10">
+            <h2 id="moduleTitle" class="text-xl font-semibold text-gray-700">Dashboard</h2>
+            <div class="flex items-center space-x-4">
+                <span class="text-sm text-gray-500"><i class="fa-solid fa-circle text-green-500 text-xs mr-1"></i> Live Environment</span>
+                <div class="h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center font-bold">U</div>
+            </div>
+        </header>
+
+        <!-- Scrollable Content -->
+        <div class="flex-1 overflow-auto p-8">
+
+            <!-- MODULE: Dashboard -->
+            <div id="module-dashboard" class="module active">
+                <!-- Filters -->
+                <div class="bg-white p-6 rounded-xl shadow-sm mb-6 border border-gray-100">
+                    <div class="flex flex-wrap items-end gap-4">
+                        <div class="w-48">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Financial Year</label>
+                            <select id="filterFY" multiple class="w-full border-gray-300 rounded-md shadow-sm border p-2 h-20">
+                                <option value="FY25-26">FY 25-26</option>
+                                <option value="FY26-27" selected>FY 26-27</option>
+                            </select>
+                        </div>
+                        <div class="w-48">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Month</label>
+                            <select id="filterMonth" multiple class="w-full border-gray-300 rounded-md shadow-sm border p-2 h-20">
+                                <option value="Jan">January</option>
+                                <option value="Feb">February</option>
+                                <option value="Mar">March</option>
+                            </select>
+                        </div>
+                        <div class="w-48">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Date Range</label>
+                            <input type="date" id="filterDateStart" class="w-full border border-gray-300 rounded-md p-2 mb-1 text-sm">
+                            <input type="date" id="filterDateEnd" class="w-full border border-gray-300 rounded-md p-2 text-sm">
+                        </div>
+                        <div class="flex-1 flex justify-end space-x-3">
+                            <button onclick="applyFilters()" class="bg-secondary text-white px-4 py-2 rounded-lg shadow hover:bg-gray-700"><i class="fa-solid fa-filter mr-2"></i>Apply Filters</button>
+                            <button onclick="exportDataXLSX()" class="bg-green-600 text-white px-4 py-2 rounded-lg shadow hover:bg-green-700"><i class="fa-solid fa-file-excel mr-2"></i>Export XLSX</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <h3 class="text-lg font-medium mb-4">Escalations by Category</h3>
+                        <canvas id="chartEscalations"></canvas>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <h3 class="text-lg font-medium mb-4">NDR Status Overview</h3>
+                        <canvas id="chartNDR"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODULE: Escalations -->
+            <div id="module-escalations" class="module">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-lg font-semibold">Customer Escalations (CRM -> Logistics)</h3>
+                    <div class="space-x-2">
+                        <button class="bg-blue-100 text-primary px-4 py-2 rounded-lg hover:bg-blue-200" onclick="alert('Bulk upload initialized')"><i class="fa-solid fa-upload mr-2"></i>Bulk Upload</button>
+                        <button class="bg-primary text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700" onclick="toggleForm('escalationFormContainer')"><i class="fa-solid fa-plus mr-2"></i>New Ticket</button>
+                    </div>
+                </div>
+
+                <!-- Single Ticket Form -->
+                <div id="escalationFormContainer" class="hidden bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6 transition-all">
+                    <h4 class="font-medium text-gray-700 mb-4 border-b pb-2">Create New Escalation Ticket</h4>
+                    <form id="escalationForm" class="grid grid-cols-1 md:grid-cols-3 gap-4" onsubmit="saveTicket(event, 'escalation')">
+                        <div><label class="block text-xs font-medium text-gray-500">Escalation Date</label><input type="date" required class="mt-1 w-full border rounded p-2 text-sm"></div>
+                        <div><label class="block text-xs font-medium text-gray-500">Order Number</label><input type="text" required class="mt-1 w-full border rounded p-2 text-sm"></div>
+                        <div><label class="block text-xs font-medium text-gray-500">Value</label><input type="number" class="mt-1 w-full border rounded p-2 text-sm"></div>
+                        <div class="md:col-span-3"><label class="block text-xs font-medium text-gray-500">Customer VOC</label><textarea rows="2" class="mt-1 w-full border rounded p-2 text-sm"></textarea></div>
+                        <div class="md:col-span-3"><label class="block text-xs font-medium text-gray-500">CRM Remarks if any</label><textarea rows="1" class="mt-1 w-full border rounded p-2 text-sm"></textarea></div>
+                        
+                        <div><label class="block text-xs font-medium text-gray-500">Category</label><select id="map-category" class="mt-1 w-full border rounded p-2 text-sm bg-gray-50"></select></div>
+                        <div><label class="block text-xs font-medium text-gray-500">Call to Action</label><select id="map-cta" class="mt-1 w-full border rounded p-2 text-sm bg-gray-50"></select></div>
+                        <div><label class="block text-xs font-medium text-gray-500">POC</label><select id="map-poc" class="mt-1 w-full border rounded p-2 text-sm bg-gray-50"></select></div>
+                        <div><label class="block text-xs font-medium text-gray-500">Channel</label><select id="map-channel" class="mt-1 w-full border rounded p-2 text-sm bg-gray-50"></select></div>
+                        <div><label class="block text-xs font-medium text-gray-500">Status</label><select id="map-status1" class="mt-1 w-full border rounded p-2 text-sm bg-gray-50"></select></div>
+                        
+                        <div class="md:col-span-3 mt-2 border-t pt-2"><h5 class="text-xs font-bold text-gray-400 uppercase">Logistics Actions</h5></div>
+                        <div><label class="block text-xs font-medium text-gray-500">Operations Action</label><select id="map-opsaction" class="logistics-field mt-1 w-full border rounded p-2 text-sm bg-gray-50"></select></div>
+                        <div><label class="block text-xs font-medium text-gray-500">Operation Comment</label><select id="map-opscomment" class="logistics-field mt-1 w-full border rounded p-2 text-sm bg-gray-50"></select></div>
+                        <div><label class="block text-xs font-medium text-gray-500">Ops Remarks</label><input type="text" class="logistics-field mt-1 w-full border rounded p-2 text-sm"></div>
+
+                        <div class="md:col-span-3 flex justify-end mt-2">
+                            <button type="submit" class="bg-primary text-white px-6 py-2 rounded shadow">Save Ticket</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Data Table Stub -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order No</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200" id="escalationTableBody">
+                            <tr><td colspan="3" class="px-6 py-4 text-center text-sm text-gray-500">Connect to Supabase to fetch live records.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- MODULE: NDR -->
+            <div id="module-ndr" class="module">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-lg font-semibold">NDR Cases (Logistics -> CRM)</h3>
+                    <div class="space-x-2">
+                        <button class="bg-blue-100 text-primary px-4 py-2 rounded-lg hover:bg-blue-200" onclick="alert('Bulk upload initialized')"><i class="fa-solid fa-upload mr-2"></i>Bulk Upload</button>
+                        <button class="bg-primary text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700" onclick="toggleForm('ndrFormContainer')"><i class="fa-solid fa-plus mr-2"></i>New NDR Ticket</button>
+                    </div>
+                </div>
+
+                 <!-- Single Ticket Form -->
+                 <div id="ndrFormContainer" class="hidden bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6 transition-all">
+                    <h4 class="font-medium text-gray-700 mb-4 border-b pb-2">Create New NDR Case</h4>
+                    <form id="ndrForm" class="grid grid-cols-1 md:grid-cols-3 gap-4" onsubmit="saveTicket(event, 'ndr')">
+                        <div><label class="block text-xs font-medium text-gray-500">Date</label><input type="date" required class="mt-1 w-full border rounded p-2 text-sm"></div>
+                        <div><label class="block text-xs font-medium text-gray-500">Pickup Date</label><input type="date" class="mt-1 w-full border rounded p-2 text-sm"></div>
+                        <div><label class="block text-xs font-medium text-gray-500">Courier Partner</label><input type="text" class="mt-1 w-full border rounded p-2 text-sm"></div>
+                        <div><label class="block text-xs font-medium text-gray-500">AWB</label><input type="text" class="mt-1 w-full border rounded p-2 text-sm"></div>
+                        <div><label class="block text-xs font-medium text-gray-500">Order ID</label><input type="text" class="mt-1 w-full border rounded p-2 text-sm"></div>
+                        <div><label class="block text-xs font-medium text-gray-500">Payment Mode</label><input type="text" class="mt-1 w-full border rounded p-2 text-sm"></div>
+                        <div class="md:col-span-3"><label class="block text-xs font-medium text-gray-500">Remarks for Failed Delivery</label><textarea rows="1" class="mt-1 w-full border rounded p-2 text-sm"></textarea></div>
+
+                        <div><label class="block text-xs font-medium text-gray-500">CTA for CRM</label><select id="map-ndr-cta" class="mt-1 w-full border rounded p-2 text-sm bg-gray-50"></select></div>
+                        <div><label class="block text-xs font-medium text-gray-500">Status</label><select id="map-status2" class="mt-1 w-full border rounded p-2 text-sm bg-gray-50"></select></div>
+
+                        <div class="md:col-span-3 mt-2 border-t pt-2"><h5 class="text-xs font-bold text-gray-400 uppercase">CRM Actions</h5></div>
+                        <div><label class="block text-xs font-medium text-gray-500">NDR - CRM Status</label><select id="map-ndr-crmstatus" class="crm-field mt-1 w-full border rounded p-2 text-sm bg-gray-50"></select></div>
+                        <div class="md:col-span-2"><label class="block text-xs font-medium text-gray-500">NDR - CRM Remarks</label><input type="text" class="crm-field mt-1 w-full border rounded p-2 text-sm"></div>
+
+                        <div class="md:col-span-3 flex justify-end mt-2">
+                            <button type="submit" class="bg-primary text-white px-6 py-2 rounded shadow">Save Ticket</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- MODULE: Admin Settings -->
+            <div id="module-admin-settings" class="module">
+                <h3 class="text-lg font-semibold mb-6">Access Control & Roles</h3>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                    <p class="text-sm text-gray-600 mb-4">Manage group permissions and module access levels. Access control should be strictly mapped in Supabase Row Level Security (RLS) policies.</p>
+                    <button class="bg-dark text-white px-4 py-2 rounded shadow text-sm mb-4"><i class="fa-solid fa-plus mr-2"></i>Create New Group</button>
+                    
+                    <table class="min-w-full divide-y divide-gray-200 border">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role / Group</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Escalations Access</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NDR Access</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <tr>
+                                <td class="px-6 py-4 text-sm font-medium">CRM Team</td>
+                                <td class="px-6 py-4 text-sm"><span class="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">Create/Edit (CRM fields)</span></td>
+                                <td class="px-6 py-4 text-sm"><span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">Edit (CRM fields)</span></td>
+                                <td class="px-6 py-4 text-sm text-primary cursor-pointer">Edit Permissions</td>
+                            </tr>
+                            <tr>
+                                <td class="px-6 py-4 text-sm font-medium">Logistics Team</td>
+                                <td class="px-6 py-4 text-sm"><span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">Edit (Ops fields)</span></td>
+                                <td class="px-6 py-4 text-sm"><span class="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">Create/Edit (Ops fields)</span></td>
+                                <td class="px-6 py-4 text-sm text-primary cursor-pointer">Edit Permissions</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        // --- 1. SUPABASE INITIALIZATION ---
+        const supabaseUrl = 'https://ivuiyiizvgnsxpuqpieb.supabase.co';
+        const supabaseKey = 'sb_publishable_XDYcJ-7oBi1fu-I3RXInwg_FkWFOM35';
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+        // --- 2. DATA DICTIONARY (From Excel Mapper Sheet) ---
+        const mapperData = {
+            category: ['Delayed Dispatch', 'Delayed Delivery', 'Wrong product Received', 'Missing Item', 'Order not received', 'Tracking details not received', 'Zoho Sync', 'Expired Product received', 'Damage product received', 'Others', 'OOS', 'QC fail', 'Empty box received', 'NDR', 'NSZ-Prepaid', 'NSZ-COD'],
+            cta: ['Mark RTO', 'Customer VOC with Images of product required', 'Book Reverse pickup  ', 'Book Reverse pickup and re-ship correct product', 'Excess price difference to be refunded to Cx', 'Excess price difference to be collected from Cx', 'Alternate address or phone number required', 'Dispatch with Express courier', 'Dispatch from EBO HYD', 'Dispatch from EBO DEL', 'Dispatch from EBO MOI', 'Dispatch from EBO GGN', 'Dispatch from EBO BLR', 'Urgent Delivery required', 'Escalate courier for Re-attempt', 'Perform QC and Dispatch according to specific given batch', 'Dispatch as per CRM update', 'Packaging video required', 'Request for POD', 'Reship units for specified SKU', 'Share tracking detail', 'Urgent Dispatch Required', 'Escalate courier for urgent delivery'],
+            poc: ['Edwina', 'Neetu', 'Amey', 'Jayesh', 'Disha', 'Saurabh'],
+            channel: ['Shopify', 'Direct', '3P', 'EBO', 'Doc', 'Retail', 'B2B'],
+            status: ['Resolved', 'WIP', 'On-Hold'],
+            opsAction: ['Escalated with CP', 'Dispatched', 'Tech Issue resolved', 'Escalated with WH', 'Reverse pickup done', 'Cx details required', 'Re-ship Done', 'Dispatched via Express'],
+            opsComment: ['Delivered to Cx', 'RTO Delivered', 'RTO Intransit', 'Packaging video attached'],
+            ctaForCRM: ['Need Cx VOC', 'Delivered', 'Max attempts done - RTO marked', 'Max attempted - Cx not available', 'Order marked RTO by courier', 'Alternate Cx address required', 'Delivery attempted - Cx not available', 'Reattempt shared', 'Cx rejected order', 'Wrong Pincode', 'CP Delay need 48 hours', 'CP Delay need 24 hours', 'Impacted Area', 'Order misrouted - Delayed', 'OTP based cancellation', 'Max attempts done - Need Cx VOC', 'Alternate Cx phone no. required', 'ODA- Cx to self collect', 'Potential lost- to be reshipped', 'Courier delay - Escalated to close delivery', 'Max attempts done'],
+            ndrCrmStatus: ['Alternate Address provided', 'Alternate Cx phone no. provided', 'VOC Provided - Arrange reattempt delivery', 'VOC Provided', 'Mark RTO', 'Cx Aligned for delay delivery', 'Mark RTO and Re-ship']
+        };
+
+        // --- 3. INITIALIZATION & UI SETUP ---
+        window.onload = () => {
+            populateDropdowns();
+            initCharts();
+            applyRBAC();
+        };
+
+        function populateSelect(elementId, dataArray) {
+            const el = document.getElementById(elementId);
+            el.innerHTML = '<option value="">Select an option...</option>';
+            dataArray.forEach(val => {
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.textContent = val;
+                el.appendChild(opt);
+            });
+        }
+
+        function populateDropdowns() {
+            populateSelect('map-category', mapperData.category);
+            populateSelect('map-cta', mapperData.cta);
+            populateSelect('map-poc', mapperData.poc);
+            populateSelect('map-channel', mapperData.channel);
+            populateSelect('map-status1', mapperData.status);
+            populateSelect('map-opsaction', mapperData.opsAction);
+            populateSelect('map-opscomment', mapperData.opsComment);
+            
+            populateSelect('map-ndr-cta', mapperData.ctaForCRM);
+            populateSelect('map-status2', mapperData.status);
+            populateSelect('map-ndr-crmstatus', mapperData.ndrCrmStatus);
+        }
+
+        function switchModule(moduleName) {
+            document.querySelectorAll('.module').forEach(m => m.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('bg-gray-800', 'border-l-4', 'border-primary'));
+            
+            document.getElementById('module-' + moduleName).classList.add('active');
+            const btn = document.querySelector(`.nav-btn[data-module="${moduleName}"]`);
+            if(btn) btn.classList.add('bg-gray-800', 'border-l-4', 'border-primary');
+
+            const titles = { 'dashboard': 'Analytics Dashboard', 'escalations': 'Customer Escalations', 'ndr': 'Non-Delivery Reports (NDR)', 'admin-settings': 'Admin Configuration' };
+            document.getElementById('moduleTitle').innerText = titles[moduleName];
+        }
+
+        function toggleForm(id) {
+            document.getElementById(id).classList.toggle('hidden');
+        }
+
+        function applyRBAC() {
+            const role = document.getElementById('roleSimulator').value;
+            const adminNav = document.getElementById('nav-admin');
+            const logFields = document.querySelectorAll('.logistics-field');
+            const crmFields = document.querySelectorAll('.crm-field');
+
+            adminNav.style.display = 'flex';
+            logFields.forEach(f => f.disabled = false);
+            crmFields.forEach(f => f.disabled = false);
+
+            if (role === 'crm') {
+                adminNav.style.display = 'none';
+                logFields.forEach(f => { f.disabled = true; f.title = "Only Logistics can edit this field"; });
+                switchModule('escalations'); 
+            } else if (role === 'logistics') {
+                adminNav.style.display = 'none';
+                crmFields.forEach(f => { f.disabled = true; f.title = "Only CRM can edit this field"; });
+                switchModule('ndr');
+            } else {
+                switchModule('dashboard');
+            }
+        }
+
+        // --- 4. DATA HANDLING (Save & Export) ---
+        async function saveTicket(event, type) {
+            event.preventDefault();
+            const form = event.target;
+            const submitBtn = form.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.innerText = "Saving to Supabase...";
+
+            try {
+                if (type === 'escalation') {
+                    const payload = {
+                        escalation_date: form.elements[0].value,
+                        order_number: form.elements[1].value,
+                        value: form.elements[2].value || null,
+                        customer_voc: form.elements[3].value,
+                        crm_remarks: form.elements[4].value,
+                        category: document.getElementById('map-category').value,
+                        call_to_action: document.getElementById('map-cta').value,
+                        poc: document.getElementById('map-poc').value,
+                        channel: document.getElementById('map-channel').value,
+                        status: document.getElementById('map-status1').value,
+                        ops_action: document.getElementById('map-opsaction').value,
+                        ops_comment: document.getElementById('map-opscomment').value,
+                        ops_remarks: form.elements[12].value
+                    };
+
+                    const { error } = await supabase.from('escalations').insert([payload]);
+                    if (error) throw error;
+                    
+                } else if (type === 'ndr') {
+                    const payload = {
+                        date: form.elements[0].value,
+                        pickup_date: form.elements[1].value || null,
+                        courier_partner: form.elements[2].value,
+                        awb: form.elements[3].value,
+                        order_id: form.elements[4].value,
+                        payment_mode: form.elements[5].value,
+                        remarks_failed_delivery: form.elements[6].value,
+                        cta_for_crm: document.getElementById('map-ndr-cta').value,
+                        status: document.getElementById('map-status2').value,
+                        ndr_crm_status: document.getElementById('map-ndr-crmstatus').value,
+                        ndr_crm_remarks: form.elements[10].value
+                    };
+
+                    const { error } = await supabase.from('ndr_cases').insert([payload]);
+                    if (error) throw error;
+                }
+
+                alert('Ticket successfully pushed to Supabase!');
+                form.reset();
+                toggleForm(type + 'FormContainer');
+
+            } catch (error) {
+                console.error("Supabase Insertion Error:", error.message);
+                alert("Failed to save ticket. Make sure your tables ('escalations' and 'ndr_cases') exist in Supabase and match the required column schemas.");
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerText = "Save Ticket";
+            }
+        }
+
+        function exportDataXLSX() {
+            const filterFY = Array.from(document.getElementById('filterFY').selectedOptions).map(o => o.value);
+            const filterMonth = Array.from(document.getElementById('filterMonth').selectedOptions).map(o => o.value);
+            
+            var wb = XLSX.utils.book_new();
+            
+            // Dummy data mirroring what you would pull from Supabase based on filters
+            var wsEsc = XLSX.utils.json_to_sheet([
+                { "Escalation Date": "2026-08-01", "Order number": "ORD1001", "Category": "Delayed Dispatch", "Status": "WIP" },
+                { "Escalation Date": "2026-08-02", "Order number": "ORD1002", "Category": "Missing Item", "Status": "Resolved" }
+            ]);
+            XLSX.utils.book_append_sheet(wb, wsEsc, "Escalations_Filtered");
+
+            var wsNdr = XLSX.utils.json_to_sheet([
+                { "Date": "2026-08-05", "AWB": "AWB9992", "Order ID": "ORD1003", "Status": "On-Hold" }
+            ]);
+            XLSX.utils.book_append_sheet(wb, wsNdr, "NDR_Filtered");
+
+            let filename = filterFY.length ? `Helpdesk_Export_${filterFY.join('_')}.xlsx` : 'Helpdesk_Export_All.xlsx';
+            XLSX.writeFile(wb, filename);
+        }
+
+        function applyFilters() {
+            alert('Filters registered. Configure Supabase GET queries to dynamically update dashboard charts here.');
+        }
+
+        function initCharts() {
+            const ctxEsc = document.getElementById('chartEscalations').getContext('2d');
+            new Chart(ctxEsc, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Delayed Dispatch', 'Wrong product', 'NDR', 'Missing Item'],
+                    datasets: [{
+                        data: [45, 15, 30, 10],
+                        backgroundColor: ['#3b82f6', '#ef4444', '#f59e0b', '#10b981']
+                    }]
+                }
+            });
+
+            const ctxNDR = document.getElementById('chartNDR').getContext('2d');
+            new Chart(ctxNDR, {
+                type: 'bar',
+                data: {
+                    labels: ['Resolved', 'WIP', 'On-Hold'],
+                    datasets: [{
+                        label: 'NDR Case Status',
+                        data: [120, 45, 15],
+                        backgroundColor: '#6366f1'
+                    }]
+                }
+            });
+        }
+
+        switchModule('dashboard');
+    </script>
+</body>
+</html>
